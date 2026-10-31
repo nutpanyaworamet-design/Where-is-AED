@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TU Rangsit AED Location Tracker | ระบบค้นหาเครื่อง AED มธ.รังสิต</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Leaflet Map -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+    <!-- Google Fonts Prompt -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        tu: {
+                            red: '#C8102E',
+                            darkRed: '#910A20',
+                            gold: '#FFC72C',
+                            navy: '#0A1128',
+                            slateBg: '#090F1E',
+                            cardBg: '#121C35'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Prompt', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.9; }
+            50% { transform: scale(1.5); opacity: 0.15; }
+            100% { transform: scale(0.95); opacity: 0.9; }
+        }
+        .gps-pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes radar-scan {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .radar-sweeper {
+            transform-origin: center center;
+            animation: radar-scan 6s linear infinite;
+        }
+
+        /* Leaflet dark theme tweaks */
+        .dark-tiles { filter: invert(1) hue-rotate(180deg) brightness(.95) contrast(.9) saturate(.6); }
+        .leaflet-container { background: #090F1E; font-family: 'Prompt', sans-serif; }
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #121C35; color: #f1f5f9; border: 1px solid #334155; }
+        .leaflet-popup-content { margin: 10px 12px; font-size: 12px; }
+        .leaflet-control-zoom a { background: #121C35 !important; color: #FFC72C !important; border-color: #334155 !important; }
+        .aed-pin { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+            background: #C8102E; border: 2px solid #FFC72C; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,.5); }
+        .aed-pin i { transform: rotate(45deg); color: #FFC72C; font-size: 12px; }
+        .aed-pin.nearest { background: #FFC72C; border-color: #fff; }
+        .aed-pin.nearest i { color: #C8102E; }
+        .user-dot { width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; border: 3px solid #fff; position: relative; }
+        .user-dot::after { content: ""; position: absolute; inset: -10px; border-radius: 50%; background: rgba(59,130,246,.35);
+            animation: pulse-ring 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0a1128;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
+    </style>
+</head>
+<body class="bg-tu-slateBg font-sans text-slate-100 h-screen flex flex-col overflow-hidden select-none">
+
+    <!-- TOP EMERGENCY DISPATCH SPEED DIAL BAR -->
+    <header class="bg-tu-navy border-b border-slate-800 shrink-0 z-30 shadow-2xl">
+        <div class="bg-tu-red px-3 py-2 text-xs sm:text-sm font-bold flex flex-wrap items-center justify-between gap-2 shadow-inner">
+            <div class="flex items-center space-x-2">
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-tu-gold animate-ping"></span>
+                <span class="tracking-wide text-white uppercase font-extrabold text-xs sm:text-sm">
+                    <i class="fa-solid fa-phone-volume mr-1"></i> โทรสายด่วนฉุกเฉิน มธ.รังสิต:
+                </span>
+            </div>
+            <div class="flex items-center gap-2 sm:gap-3">
+                <a href="tel:1669" class="bg-black/30 hover:bg-black/50 px-3 py-1 rounded-lg text-white font-black flex items-center gap-1.5 transition border border-white/20 active:scale-95">
+                    <i class="fa-solid fa-truck-medical text-tu-gold"></i> 1669 (กู้ชีพ)
+                </a>
+                <a href="tel:029269999" class="bg-black/30 hover:bg-black/50 px-3 py-1 rounded-lg text-white font-black flex items-center gap-1.5 transition border border-white/20 active:scale-95">
+                    <i class="fa-solid fa-hospital text-tu-gold"></i> 02-926-9999 (รพ.ธรรมศาสตร์)
+                </a>
+            </div>
+        </div>
+
+        <!-- APP TITLE & GPS TELEMETRY STATUS BAR -->
+        <div class="px-4 py-2.5 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-tu-red to-tu-darkRed text-tu-gold border border-tu-gold flex items-center justify-center font-black text-xl shadow-lg shrink-0">
+                    <i class="fa-solid fa-heart-pulse"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-base sm:text-lg leading-tight text-white flex items-center gap-2">
+                        TU AED Location Tracker
+                        <span id="gpsStatusBadge" class="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> ดึงพิกัด GPS...
+                        </span>
+                    </h1>
+                    <p class="text-xs text-slate-400">ระบบติดตามตำแหน่งเครื่อง AED ฉุกเฉิน มหาวิทยาลัยธรรมศาสตร์ ศูนย์รังสิต</p>
+                </div>
+            </div>
+
+            <!-- Header Quick Actions -->
+            <div class="flex items-center space-x-2">
+                <button onclick="requestRealGPS()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 transition shadow-lg active:scale-95">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <span class="hidden sm:inline">จับพิกัด GPS จริง</span>
+                </button>
+                <button onclick="openCPRModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 transition active:scale-95">
+                    <i class="fa-solid fa-book-medical text-tu-gold"></i>
+                    <span class="hidden sm:inline">ขั้นตอน CPR/AED</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE CONTAINER -->
+    <div class="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+
+        <!-- SIDEBAR: SORTED AED LIST & SEARCH FILTERS -->
+        <aside class="w-full lg:w-[420px] bg-tu-navy border-r border-slate-800 flex flex-col z-20 shadow-2xl h-1/2 lg:h-full shrink-0">
+            
+            <!-- NEAREST AED LIVE HIGHLIGHT BANNER -->
+            <div id="nearestHighlightCard" class="p-3.5 bg-gradient-to-r from-tu-red via-red-900 to-tu-darkRed text-white border-b border-tu-red/50 flex items-center justify-between shadow-xl">
+                <div class="flex items-center space-x-3 min-w-0 pr-2">
+                    <div class="w-10 h-10 rounded-xl bg-tu-gold text-tu-navy font-black flex items-center justify-center text-lg shadow-lg shrink-0">
+                        <i class="fa-solid fa-bolt text-tu-red"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <div class="text-[10px] text-tu-gold font-extrabold uppercase tracking-wider flex items-center gap-1">
+                            <i class="fa-solid fa-location-arrow text-[9px]"></i> ใกล้พิกัดของคุณมากที่สุด
+                        </div>
+                        <div id="nearestName" class="font-bold text-xs sm:text-sm text-white truncate">กำลังคำนวณ GPS...</div>
+                        <div id="nearestDetail" class="text-[10px] text-slate-200 truncate">--</div>
+                    </div>
+                </div>
+                <div class="text-right shrink-0 border-l border-white/20 pl-3">
+                    <div id="nearestDist" class="text-base font-black text-tu-gold">-- m</div>
+                    <button onclick="navigateNearestGMap()" class="mt-0.5 bg-tu-gold hover:bg-yellow-300 text-tu-navy font-bold text-[10px] px-2.5 py-1 rounded-md shadow transition flex items-center gap-1 active:scale-95">
+                        <i class="fa-solid fa-diamond-turn-right"></i> นำทาง
+                    </button>
+                </div>
+            </div>
+
+            <!-- SEARCH & ZONE FILTERS -->
+            <div class="p-3 bg-slate-950/90 border-b border-slate-800 space-y-2">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs"></i>
+                    <input type="text" id="searchInput" onkeyup="filterAndRender()" placeholder="ค้นหาชื่ออาคาร, ชั้น, เลขห้อง..." 
+                        class="w-full pl-8 pr-8 py-2 bg-tu-cardBg border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-tu-gold transition">
+                    <button onclick="clearSearch()" id="clearBtn" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+
+                <!-- Zone Filter Buttons -->
+                <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px]" id="zoneFilters">
+                    <button onclick="setFilterZone('all')" class="zone-btn active bg-tu-gold text-tu-navy px-2.5 py-0.5 rounded-full font-bold shrink-0 transition" data-zone="all">ทั้งหมด (17)</button>
+                    <button onclick="setFilterZone('sports')" class="zone-btn bg-slate-800 text-slate-400 hover:bg-slate-700 px-2.5 py-0.5 rounded-full shrink-0 transition" data-zone="sports">ศูนย์กีฬา</button>
+                    <button onclick="setFilterZone('sc')" class="zone-btn bg-slate-800 text-slate-400 hover:bg-slate-700 px-2.5 py-0.5 rounded-full shrink-0 transition" data-zone="sc">SC / บร.4</button>
+                    <button onclick="setFilterZone('central')" class="zone-btn bg-slate-800 text-slate-400 hover:bg-slate-700 px-2.5 py-0.5 rounded-full shrink-0 transition" data-zone="central">โดม / อธิการ / กิติยาคาร</button>                    <button onclick="setFilterZone('other')" class="zone-btn bg-slate-800 text-slate-400 hover:bg-slate-700 px-2.5 py-0.5 rounded-full shrink-0 transition" data-zone="other">อื่นๆ</button>
+                </div>
+            </div>
+
+            <!-- AED LIST (sorted by distance) -->
+            <div id="aedList" class="flex-1 overflow-y-auto p-2 space-y-1.5"></div>
+        </aside>
+
+        <!-- MAP PANEL -->
+        <main class="flex-1 relative min-h-0">
+            <div id="map" class="absolute inset-0 z-0"></div>
+
+            <!-- Map overlay buttons -->
+            <div class="absolute top-3 right-3 z-[400] flex flex-col gap-2">
+                <button onclick="recenterUser()" title="ไปที่ตำแหน่งของฉัน" class="w-10 h-10 rounded-xl bg-tu-cardBg border border-slate-700 text-blue-400 shadow-lg active:scale-95">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                </button>
+                <button onclick="fitAll()" title="แสดงทั้งหมด" class="w-10 h-10 rounded-xl bg-tu-cardBg border border-slate-700 text-tu-gold shadow-lg active:scale-95">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+            </div>
+            <div class="absolute bottom-3 left-3 z-[400] bg-tu-navy/90 border border-slate-700 rounded-xl px-3 py-2 text-[10px] text-slate-300 space-y-1 shadow-lg">
+                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-tu-red border border-tu-gold"></span> จุดติดตั้ง AED</div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-tu-gold border border-white"></span> AED ใกล้ที่สุด</div>
+                <div class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-blue-500 border border-white"></span> ตำแหน่งของคุณ</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- CPR / AED MODAL -->
+    <div id="cprModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onclick="if(event.target===this)closeCPRModal()">
+        <div class="bg-tu-navy border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="font-extrabold text-lg text-white"><i class="fa-solid fa-book-medical text-tu-gold mr-2"></i>ขั้นตอน CPR / AED</h2>
+                <button onclick="closeCPRModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <ol class="space-y-2 text-sm text-slate-200 list-decimal list-inside">
+                <li>ตรวจความปลอดภัย แล้วปลุกเรียกผู้ป่วย</li>
+                <li>ไม่ตอบสนอง → โทร <b class="text-tu-gold">1669</b> และให้คนไปเอา AED</li>
+                <li>ไม่หายใจ/หายใจเฮือก → กดหน้าอก 100–120 ครั้ง/นาที ลึก 5–6 ซม.</li>
+                <li>AED มาถึง → เปิดเครื่อง ทำตามเสียงแนะนำ ติดแผ่นตามรูป</li>
+                <li>ห้ามแตะตัวผู้ป่วยขณะวิเคราะห์/ช็อก แล้วกดหน้าอกต่อทันที</li>
+            </ol>
+            <a href="tel:1669" class="mt-4 block text-center bg-tu-red hover:bg-tu-darkRed text-white font-bold py-2.5 rounded-xl"><i class="fa-solid fa-phone mr-1"></i> โทร 1669</a>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script>
+        // พิกัดจาก OpenStreetMap ตามแผนที่ทางการ (Thammasat Well Being Center, 18 Jun 2026)
+        // * = ประมาณจากตำแหน่งอาคาร ควรเดินไปเช็คจุดจริง / * = estimated within the building
+        const AED_DATA = [
+            { id: 1,  name: 'อาคารยิมเนเซียม 7', detail: 'Gymnasium 7', zone: 'sports', lat: 14.06968, lng: 100.60057 },
+            { id: 2,  name: 'สนามเมนสเตเดียม', detail: 'Main Stadium', zone: 'sports', lat: 14.06800, lng: 100.59888 },
+            { id: 3,  name: 'สระว่ายน้ำ', detail: 'ศูนย์กีฬาทางน้ำ ชั้น 2', zone: 'sports', lat: 14.06661, lng: 100.60195 },
+            { id: 4,  name: 'สนามมินิสเตเดียม', detail: 'ชมรมรักบี้', zone: 'sports', lat: 14.07209, lng: 100.59912 },
+            { id: 5,  name: 'สนามแบดมินตัน Interzone', detail: 'ด้านหลัง 7-11', zone: 'sports', lat: 14.07668, lng: 100.59712 },
+            { id: 6,  name: 'อาคารสำนักงานอธิการบดี', detail: 'ชั้น 1', zone: 'central', lat: 14.07410, lng: 100.60222 },
+            { id: 7,  name: 'อาคารโดมบริหาร', detail: 'ชั้น 1 *', zone: 'central', lat: 14.07350, lng: 100.60250 },
+            { id: 8,  name: 'อาคาร SC1', detail: 'หน้าห้อง 1048 *', zone: 'sc', lat: 14.07000, lng: 100.60300 },
+            { id: 9,  name: 'อาคาร SC1', detail: 'หน้าห้อง 1062 *', zone: 'sc', lat: 14.07030, lng: 100.60340 },
+            { id: 10, name: 'อาคาร SC3', detail: 'หน้าห้อง 119 *', zone: 'sc', lat: 14.07050, lng: 100.60540 },
+            { id: 11, name: 'อาคาร SC3', detail: 'ข้างร้านกาแฟอเมซอน *', zone: 'sc', lat: 14.07080, lng: 100.60590 },
+            { id: 12, name: 'อาคารกิติยาคาร', detail: 'ทางเข้าหลัก *', zone: 'central', lat: 14.07140, lng: 100.60830 },
+            { id: 13, name: 'อาคารกิติยาคาร', detail: 'Music Hall *', zone: 'central', lat: 14.07095, lng: 100.60880 },
+            { id: 14, name: 'คณะวิทยาศาสตร์ฯ (บร.4)', detail: 'ชั้น 1 ติดห้องกระจก', zone: 'sc', lat: 14.07261, lng: 100.60774 },
+            { id: 15, name: 'อาคารอุทยานป๋วย 100 ปี', detail: 'Puey Centenary Hall', zone: 'other', lat: 14.07120, lng: 100.61161 },
+            { id: 16, name: 'อาคารกิจกรรมนักศึกษา', detail: 'ชั้น 1', zone: 'other', lat: 14.07247, lng: 100.60099 },
+            { id: 17, name: 'ศูนย์การเรียนรู้กรมหลวงนราธิวาสราชนครินทร์', detail: 'ชั้น 1', zone: 'other', lat: 14.07158, lng: 100.60300 },
+        ];
+        const CAMPUS_CENTER = [14.0712, 100.6045];
+
+        let userPos = null, currentZone = 'all', nearest = null;
+        let map, userMarker, accuracyCircle;
+        const markers = {};
+
+        // ---------- MAP ----------
+        function initMap() {
+            map = L.map('map', { zoomControl: true, attributionControl: true }).setView(CAMPUS_CENTER, 16);
+            // OSM tiles + CSS dark filter (ต้องเปิดผ่าน localhost / https)
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19, className: 'dark-tiles', attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+            map.zoomControl.setPosition('bottomright');
+
+            AED_DATA.forEach(a => {
+                markers[a.id] = L.marker([a.lat, a.lng], { icon: aedIcon(false) })
+                    .addTo(map)
+                    .bindPopup(popupHTML(a));
+            });
+            fitAll();
+        }
+
+        function aedIcon(isNearest) {
+            return L.divIcon({
+                className: '',
+                html: `<div class="aed-pin ${isNearest ? 'nearest' : ''}"><i class="fa-solid fa-heart-pulse"></i></div>`,
+                iconSize: [30, 30], iconAnchor: [15, 30], popupAnchor: [0, -28]
+            });
+        }
+
+        function popupHTML(a) {
+            const d = userPos ? `<div class="text-[#FFC72C] font-bold mt-1">${fmtDist(a.dist)}</div>` : '';
+            return `<div class="font-bold">${a.name}</div><div class="text-slate-400">${a.detail}</div>${d}
+                <a href="${gmapUrl(a)}" target="_blank" rel="noopener" class="inline-block mt-2 bg-[#FFC72C] text-[#0A1128] font-bold px-2 py-1 rounded">นำทาง</a>`;
+        }
+
+        function updateUserMarker(lat, lng, acc) {
+            const ll = [lat, lng];
+            if (!userMarker) {
+                userMarker = L.marker(ll, {
+                    icon: L.divIcon({ className: '', html: '<div class="user-dot"></div>', iconSize: [16, 16], iconAnchor: [8, 8] }),
+                    zIndexOffset: 1000
+                }).addTo(map).bindPopup('ตำแหน่งของคุณ');
+                accuracyCircle = L.circle(ll, { radius: acc || 30, color: '#3b82f6', weight: 1, fillOpacity: 0.1 }).addTo(map);
+            } else {
+                userMarker.setLatLng(ll);
+                accuracyCircle.setLatLng(ll).setRadius(acc || 30);
+            }
+        }
+
+        function recenterUser() {
+            if (userPos) map.setView([userPos.lat, userPos.lng], 18);
+            else requestRealGPS();
+        }
+
+        function fitAll() {
+            const pts = AED_DATA.map(a => [a.lat, a.lng]);
+            if (userPos) pts.push([userPos.lat, userPos.lng]);
+            map.fitBounds(pts, { padding: [40, 40] });
+        }
+
+        function focusAED(id) {
+            const a = AED_DATA.find(x => x.id === id);
+            map.setView([a.lat, a.lng], 18);
+            markers[id].openPopup();
+        }
+
+        // ---------- GPS ----------
+        function setGpsBadge(state, text) {
+            const b = document.getElementById('gpsStatusBadge');
+            const styles = {
+                wait: 'bg-amber-500/20 text-amber-400 border-amber-500/30', dot1: 'bg-amber-400',
+                ok:   'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', dot2: 'bg-emerald-400',
+                err:  'bg-red-500/20 text-red-400 border-red-500/30', dot3: 'bg-red-400'
+            };
+            const cls = state === 'ok' ? [styles.ok, styles.dot2] : state === 'err' ? [styles.err, styles.dot3] : [styles.wait, styles.dot1];
+            b.className = `${cls[0]} border text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1`;
+            b.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${cls[1]} animate-pulse"></span> ${text}`;
+        }
+
+        let watchId = null;
+        function requestRealGPS() {
+            if (!navigator.geolocation) { setGpsBadge('err', 'ไม่รองรับ GPS'); return; }
+            setGpsBadge('wait', 'ดึงพิกัด GPS...');
+            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+            let first = true;
+            watchId = navigator.geolocation.watchPosition(pos => {
+                userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                updateUserMarker(userPos.lat, userPos.lng, pos.coords.accuracy);
+                setGpsBadge('ok', `GPS ±${Math.round(pos.coords.accuracy)} m`);
+                filterAndRender();
+                if (first) { map.setView([userPos.lat, userPos.lng], 17); first = false; }
+            }, err => {
+                setGpsBadge('err', err.code === 1 ? 'ไม่อนุญาต GPS' : 'GPS ล้มเหลว');
+                filterAndRender();
+            }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+        }
+
+        // ---------- DISTANCE ----------
+        function haversine(a, b) {
+            const R = 6371000, toRad = d => d * Math.PI / 180;
+            const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+            const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(h));
+        }
+        const fmtDist = m => m == null ? '-- m' : m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.round(m) + ' m';
+        const gmapUrl = a => `https://www.google.com/maps/dir/?api=1&destination=${a.lat},${a.lng}&travelmode=walking`;
+
+        // ---------- LIST + FILTER ----------
+        function setFilterZone(zone) {
+            currentZone = zone;
+            document.querySelectorAll('.zone-btn').forEach(btn => {
+                const on = btn.dataset.zone === zone;
+                btn.className = `zone-btn ${on ? 'bg-tu-gold text-tu-navy font-bold' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'} px-2.5 py-0.5 rounded-full shrink-0 transition`;
+            });
+            filterAndRender();
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            filterAndRender();
+        }
+
+        function filterAndRender() {
+            const q = document.getElementById('searchInput').value.trim().toLowerCase();
+            document.getElementById('clearBtn').classList.toggle('hidden', !q);
+
+            AED_DATA.forEach(a => a.dist = userPos ? haversine(userPos, a) : null);
+            nearest = userPos ? [...AED_DATA].sort((x, y) => x.dist - y.dist)[0] : null;
+
+            const list = AED_DATA
+                .filter(a => currentZone === 'all' || a.zone === currentZone)
+                .filter(a => !q || (a.name + ' ' + a.detail).toLowerCase().includes(q))
+                .sort((x, y) => userPos ? x.dist - y.dist : x.id - y.id);
+
+            // Map markers: show only filtered, highlight nearest
+            AED_DATA.forEach(a => {
+                const m = markers[a.id];
+                const visible = list.includes(a);
+                if (visible && !map.hasLayer(m)) m.addTo(map);
+                if (!visible && map.hasLayer(m)) map.removeLayer(m);
+                m.setIcon(aedIcon(nearest && a.id === nearest.id));
+                m.setPopupContent(popupHTML(a));
+            });
+
+            // Nearest banner
+            document.getElementById('nearestName').textContent = nearest ? nearest.name : (userPos ? '--' : 'กด "จับพิกัด GPS จริง"');
+            document.getElementById('nearestDetail').textContent = nearest ? nearest.detail : '--';
+            document.getElementById('nearestDist').textContent = nearest ? fmtDist(nearest.dist) : '-- m';
+
+            // Sidebar list
+            const el = document.getElementById('aedList');
+            if (!list.length) {
+                el.innerHTML = '<div class="text-center text-slate-500 text-xs py-8">ไม่พบเครื่อง AED</div>';
+                return;
+            }
+            el.innerHTML = list.map((a, i) => `
+                <div onclick="focusAED(${a.id})" class="cursor-pointer bg-tu-cardBg hover:bg-slate-800 border ${nearest && a.id === nearest.id ? 'border-tu-gold' : 'border-slate-800'} rounded-xl p-2.5 flex items-center gap-3 transition">
+                    <div class="w-8 h-8 rounded-lg bg-tu-red/20 text-tu-red flex items-center justify-center font-black text-xs shrink-0">${i + 1}</div>
+                    <div class="min-w-0 flex-1">
+                        <div class="text-xs font-bold text-white truncate">${a.name}</div>
+                        <div class="text-[10px] text-slate-400 truncate">${a.detail}</div>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <div class="text-xs font-black text-tu-gold">${fmtDist(a.dist)}</div>
+                        <a href="${gmapUrl(a)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-[10px] text-blue-400 hover:underline">นำทาง</a>
+                    </div>
+                </div>`).join('');
+        }
+
+        function navigateNearestGMap() {
+            if (nearest) window.open(gmapUrl(nearest), '_blank');
+            else requestRealGPS();
+        }
+
+        // ---------- CPR MODAL ----------
+        function openCPRModal() { document.getElementById('cprModal').classList.remove('hidden'); }
+        function closeCPRModal() { document.getElementById('cprModal').classList.add('hidden'); }
+
+        // ---------- INIT ----------
+        initMap();
+        filterAndRender();
+        requestRealGPS();
+        window.addEventListener('resize', () => map.invalidateSize());
+    </script>
+</body>
+</html>
