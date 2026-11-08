@@ -2,22 +2,7 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="แผนที่ตำแหน่งเครื่อง AED ทั้งหมดใน มธ.ศูนย์รังสิต ค้นหาเครื่องที่ใกล้ที่สุดด้วย GPS พร้อมนำทาง เบอร์ฉุกเฉิน 1669 และขั้นตอน CPR">
-    <meta name="keywords" content="AED มธ.รังสิต, เครื่อง AED ธรรมศาสตร์, แผนที่ AED, CPR, ปฐมพยาบาล, Thammasat Rangsit AED">
-    <meta name="theme-color" content="#C8102E">
-    <meta property="og:type" content="website">
-    <meta property="og:locale" content="th_TH">
-    <meta property="og:title" content="แผนที่เครื่อง AED มธ.รังสิต | ค้นหาเครื่องที่ใกล้ที่สุด">
-    <meta property="og:description" content="ฉุกเฉินหัวใจหยุดเต้น? ค้นหาเครื่อง AED ใกล้คุณใน มธ.รังสิต พร้อมนำทางและขั้นตอน CPR">
-    <!-- TODO: ใส่ URL จริงของเว็บ และรูปตัวอย่าง (1200x630) -->
-    <!-- <link rel="canonical" href="https://YOUR-DOMAIN/"> -->
-    <!-- <meta property="og:url" content="https://YOUR-DOMAIN/"> -->
-    <!-- <meta property="og:image" content="https://YOUR-DOMAIN/preview.jpg"> -->
-    <meta name="twitter:card" content="summary_large_image">
-    <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"WebApplication","name":"TU Rangsit AED Location Tracker","description":"ระบบค้นหาเครื่อง AED ใน มธ.ศูนย์รังสิต","inLanguage":"th","applicationCategory":"HealthApplication","operatingSystem":"Any","areaServed":"Thammasat University Rangsit Campus"}
-    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TU Rangsit AED Location Tracker | ระบบค้นหาเครื่อง AED มธ.รังสิต</title>
     
     <!-- Tailwind CSS -->
@@ -145,10 +130,10 @@
 
             <!-- Header Quick Actions -->
             <div class="flex items-center space-x-2">
-                <div id="visitorBadge" title="จำนวนการเข้าชมทั้งหมด" class="flex bg-slate-800/80 border border-slate-700 text-slate-200 text-xs px-3 py-2 rounded-xl font-bold items-center gap-1.5">
+                <div title="ยอดเข้าชม" class="bg-slate-800 border border-slate-700 text-slate-200 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5">
                     <i class="fa-solid fa-eye text-tu-gold"></i>
-                    <span id="visitorCount">...</span>
-                    <span class="hidden md:inline font-normal text-slate-400">ครั้ง</span>
+                    <span id="viewCount">--</span>
+                    <span class="hidden sm:inline text-slate-400 font-normal">ครั้ง</span>
                 </div>
                 <button onclick="requestRealGPS()" class="bg-blue-600 hover:bg-blue-500 text-white text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 transition shadow-lg active:scale-95">
                     <i class="fa-solid fa-location-crosshairs"></i>
@@ -456,53 +441,30 @@
         function openCPRModal() { document.getElementById('cprModal').classList.remove('hidden'); }
         function closeCPRModal() { document.getElementById('cprModal').classList.add('hidden'); }
 
-
-        // ---------- VISITOR COUNTER ----------
-        // เปลี่ยน COUNTER_NS ให้เป็นชื่อเฉพาะของคุณ เพื่อไม่ให้ซ้ำกับคนอื่น
-        const COUNTER_NS = 'tu-rangsit-aed-map';
-        const COUNTER_KEY = 'page-views';
-        const COUNTER_PROVIDERS = [
-            { // counterapi.dev
-                hit: () => `https://api.counterapi.dev/v1/${COUNTER_NS}/${COUNTER_KEY}/up`,
-                get: () => `https://api.counterapi.dev/v1/${COUNTER_NS}/${COUNTER_KEY}`,
-                read: d => d.count
-            },
-            { // abacus (สำรอง)
-                hit: () => `https://abacus.jasoncameron.dev/hit/${COUNTER_NS}/${COUNTER_KEY}`,
-                get: () => `https://abacus.jasoncameron.dev/get/${COUNTER_NS}/${COUNTER_KEY}`,
-                read: d => d.value
+        // ---------- VIEW COUNTER ----------
+        // นับทุกครั้งที่เปิดหน้า (สแกน QR ซ้ำเครื่องเดิมก็เพิ่ม) + เลขตั้งต้น / counts every page open, plus a starting offset
+        const VIEW_BASE = 80;                          // เลขตั้งต้น (mock) / starting number
+        const COUNTER_NS = 'tu-aed-tracker-lnynano';   // เปลี่ยนชื่อนี้ = เริ่มนับใหม่ / change to reset
+        async function updateViewCount() {
+            const el = document.getElementById('viewCount');
+            let hits;
+            try {
+                const r = await fetch(`https://abacus.jasoncameron.dev/hit/${COUNTER_NS}/views`);
+                hits = (await r.json()).value;
+            } catch (e) {
+                // offline fallback: นับเฉพาะเครื่องนี้ / this device only
+                try { hits = (+localStorage.getItem('aedViews') || 0) + 1; localStorage.setItem('aedViews', hits); } catch (_) { hits = 1; }
             }
-        ];
-        async function updateVisitorCount() {
-            const out = document.getElementById('visitorCount');
-            const badge = document.getElementById('visitorBadge');
-            const today = new Date().toISOString().slice(0, 10);
-            let counted = false;
-            try { counted = localStorage.getItem('aedVisitDay') === today; } catch (e) {}
-
-            for (const p of COUNTER_PROVIDERS) {
-                try {
-                    const res = await fetch(counted ? p.get() : p.hit());
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    const n = p.read(await res.json());
-                    if (typeof n !== 'number') throw new Error('bad data');
-                    out.textContent = n.toLocaleString('th-TH');
-                    if (!counted) { try { localStorage.setItem('aedVisitDay', today); } catch (e) {} }
-                    return;
-                } catch (e) {
-                    console.warn('Visitor counter failed:', e);
-                }
-            }
-            out.textContent = 'N/A';
-            badge.title = 'โหลดตัวนับไม่สำเร็จ (ตรวจสอบอินเทอร์เน็ต หรือเปิดผ่านเว็บที่ host ไว้)';
+            el.textContent = (VIEW_BASE + hits).toLocaleString('th-TH');
         }
 
         // ---------- INIT ----------
         initMap();
-        updateVisitorCount();
         filterAndRender();
         requestRealGPS();
+        updateViewCount();
         window.addEventListener('resize', () => map.invalidateSize());
     </script>
 </body>
 </html>
+
